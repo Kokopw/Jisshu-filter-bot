@@ -29,52 +29,52 @@ class Media(Document):
 
 async def get_files_db_size():
     return (await mydb.command("dbstats"))['dataSize']
-    
-async def save_file(media):
-    """Save file in database"""
 
-    # TODO: Find better way to get same file_id for same media to avoid duplicates
-    file_id, file_ref = unpack_new_file_id(media.file_id)
-    file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name))
+async def save_file(media):
+    """Save file in database, preserving suc/dup/err return values."""
     try:
+        file_id, file_ref = unpack_new_file_id(media.file_id)
+        file_name = re.sub(r"(_|\-|\.|\+)", " ", str(media.file_name or file_id))
+        mime_type = getattr(media, 'mime_type', None)
+        caption = getattr(media, 'caption', None)
         file = Media(
             file_id=file_id,
             file_ref=file_ref,
             file_name=file_name,
             file_size=media.file_size,
-            mime_type=media.mime_type,
-            caption=media.caption.html if media.caption else None,
-            file_type=media.mime_type.split('/')[0]
+            mime_type=mime_type,
+            caption=getattr(caption, 'html', str(caption)) if caption else None,
+            file_type=mime_type.split('/')[0] if mime_type else None
         )
-    except ValidationError:
+        await file.commit()
+    except DuplicateKeyError:
+        print(f'{getattr(media, "file_name", "NO_FILE")} is already saved in database')
+        return 'dup'
+    except (ValidationError, ValueError, TypeError, AttributeError):
         print('Error occurred while saving file in database')
         return 'err'
     else:
-        try:
-            await file.commit()
-        except DuplicateKeyError:      
-            print(f'{getattr(media, "file_name", "NO_FILE")} is already saved in database') 
-            return 'dup'
-        else:
-            print(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
-            return 'suc'
+        print(f'{getattr(media, "file_name", "NO_FILE")} is saved to database')
+        return 'suc'
 
 async def get_search_results(query, max_results=MAX_BTN, offset=0, lang=None):
     query = query.strip()
+    # User search text is literal; separators between words remain flexible.
     if not query:
         raw_pattern = '.'
-    elif ' ' not in query:
-        raw_pattern = r'(\b|[\.\+\-_])' + query + r'(\b|[\.\+\-_])'
     else:
-        raw_pattern = query.replace(' ', r'.*[\s\.\+\-_]') 
-    try:
-        regex = re.compile(raw_pattern, flags=re.IGNORECASE)
-    except:
-        regex = query
+        words = query.split()
+        escaped = r'.*[\s\.\+\-_]'.join(re.escape(word) for word in words)
+        if len(words) == 1:
+            raw_pattern = r'(?<!\w)' + escaped + r'(?!\w)'
+        else:
+            raw_pattern = escaped
+    regex = re.compile(raw_pattern, flags=re.IGNORECASE)
     filter = {'file_name': regex}
     cursor = Media.find(filter)
     cursor.sort('$natural', -1)
     if lang:
+        lang = lang.lower()
         lang_files = [file async for file in cursor if lang in file.file_name.lower()]
         files = lang_files[offset:][:max_results]
         total_results = len(lang_files)
@@ -87,9 +87,9 @@ async def get_search_results(query, max_results=MAX_BTN, offset=0, lang=None):
     total_results = await Media.count_documents(filter)
     next_offset = offset + max_results
     if next_offset >= total_results:
-        next_offset = ''       
+        next_offset = ''
     return files, next_offset, total_results
-    
+
 async def get_bad_files(query, file_type=None, offset=0, filter=False):
     query = query.strip()
     if not query:
@@ -110,12 +110,13 @@ async def get_bad_files(query, file_type=None, offset=0, filter=False):
     cursor.sort('$natural', -1)
     files = await cursor.to_list(length=total_results)
     return files, total_results
-    
+
 async def get_file_details(query):
     filter = {'file_id': query}
     cursor = Media.find(filter)
     filedetails = await cursor.to_list(length=1)
     return filedetails
+
 
 def encode_file_id(s: bytes) -> str:
     r = b""
@@ -130,8 +131,10 @@ def encode_file_id(s: bytes) -> str:
             r += bytes([i])
     return base64.urlsafe_b64encode(r).decode().rstrip("=")
 
+
 def encode_file_ref(file_ref: bytes) -> str:
     return base64.urlsafe_b64encode(file_ref).decode().rstrip("=")
+
 
 def unpack_new_file_id(new_file_id):
     """Return file_id, file_ref"""
@@ -147,4 +150,3 @@ def unpack_new_file_id(new_file_id):
     )
     file_ref = encode_file_ref(decoded.file_reference)
     return file_id, file_ref
-    
