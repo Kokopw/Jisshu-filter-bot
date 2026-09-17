@@ -5,7 +5,7 @@ from imdb import Cinemagoer
 import asyncio
 from pyrogram.types import Message
 from pyrogram import enums
-import pytz, re, os 
+import pytz, re, os
 from shortzy import Shortzy
 from datetime import datetime
 from typing import Any
@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 BANNED = {}
-imdb = Cinemagoer() 
- 
+imdb = Cinemagoer()
+
 class temp(object):
     ME = None
     CURRENT=int(os.environ.get("SKIP", 2))
@@ -28,10 +28,11 @@ class temp(object):
     SETTINGS = {}
     FILES_ID = {}
     USERS_CANCEL = False
-    GROUPS_CANCEL = False    
+    GROUPS_CANCEL = False
     CHAT = {}
     BANNED_USERS = []
     BANNED_CHATS = []
+
 def formate_file_name(file_name):
     file_name = ' '.join(filter(lambda x: not x.startswith('[') and not x.startswith('@') and not x.startswith('www.'), file_name.split()))
     return file_name
@@ -60,7 +61,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
         elif file is not None:
             year = re.findall(r'[1-2]\d{3}', file, re.IGNORECASE)
             if year:
-                year = list_to_str(year[:1]) 
+                year = list_to_str(year[:1])
         else:
             year = None
         movieid = imdb.search_movie(title.lower(), results=10)
@@ -84,7 +85,7 @@ async def get_poster(query, bulk=False, id=False, file=None):
     if movie.get("original air date"):
         date = movie["original air date"]
     elif movie.get("year"):
-        date = movie.get("year")
+        date = movie.get('year')
     else:
         date = "N/A"
     plot = ""
@@ -128,57 +129,66 @@ async def get_poster(query, bulk=False, id=False, file=None):
     }
 
 async def users_broadcast(user_id, message, is_pin):
-    try:
-        m=await message.copy(chat_id=user_id)
-        if is_pin:
+    while True:
+        try:
+            m = await message.copy(chat_id=user_id)
+            break
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+        except InputUserDeactivated:
+            await db.delete_user(int(user_id))
+            logging.info(f"{user_id}-Removed from Database, since deleted account.")
+            return False, "Deleted"
+        except UserIsBlocked:
+            logging.info(f"{user_id} -Blocked the bot.")
+            await db.delete_user(user_id)
+            return False, "Blocked"
+        except PeerIdInvalid:
+            await db.delete_user(int(user_id))
+            logging.info(f"{user_id} - PeerIdInvalid")
+            return False, "Error"
+        except Exception:
+            logger.exception("Failed to broadcast to user %s", user_id)
+            return False, "Error"
+    if is_pin:
+        try:
             await m.pin(both_sides=True)
-        return True, "Success"
-    except FloodWait as e:
-        await asyncio.sleep(e.x)
-        return await users_broadcast(user_id, message)
-    except InputUserDeactivated:
-        await db.delete_user(int(user_id))
-        logging.info(f"{user_id}-Removed from Database, since deleted account.")
-        return False, "Deleted"
-    except UserIsBlocked:
-        logging.info(f"{user_id} -Blocked the bot.")
-        await db.delete_user(user_id)
-        return False, "Blocked"
-    except PeerIdInvalid:
-        await db.delete_user(int(user_id))
-        logging.info(f"{user_id} - PeerIdInvalid")
-        return False, "Error"
-    except Exception as e:
-        return False, "Error"
+        except Exception:
+            # Delivery succeeded; a pin failure must not cause duplicate delivery.
+            logger.warning("Delivered to user %s but could not pin", user_id)
+    return True, "Success"
 
 async def groups_broadcast(chat_id, message, is_pin):
-    try:
-        m = await message.copy(chat_id=chat_id)
-        if is_pin:
-            try:
-                await m.pin()
-            except:
-                pass
-        return "Success"
-    except FloodWait as e:
-        await asyncio.sleep(e.x)
-        return await groups_broadcast(chat_id, message)
-    except Exception as e:
-        await db.delete_chat(chat_id)
-        return "Error"
+    while True:
+        try:
+            m = await message.copy(chat_id=chat_id)
+            break
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+        except Exception:
+            # A transient send error does not prove that a group is invalid.
+            logger.exception("Failed to broadcast to group %s", chat_id)
+            return "Error"
+    if is_pin:
+        try:
+            await m.pin()
+        except Exception:
+            logger.warning("Delivered to group %s but could not pin", chat_id)
+    return "Success"
 
 async def get_settings(group_id , pm_mode = False):
     if pm_mode:
         return SETTINGS.copy()
     else:
         settings = await db.get_settings(group_id)
-    return settings 
-    
+    return settings
+
 async def save_group_settings(group_id, key, value):
     current = await get_settings(group_id)
     current.update({key: value})
     temp.SETTINGS.update({group_id: current})
     await db.update_settings(group_id, current)
+
 
 def get_size(size):
     units = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB"]
@@ -189,11 +199,13 @@ def get_size(size):
         size /= 1024.0
     return "%.2f %s" % (size, units[i])
 
+
 def get_name(name):
     regex = re.sub(r'@\w+', '', name)
     return regex
 
-def list_to_str(k):    
+
+def list_to_str(k):
     if not k:
         return "N/A"
     elif len(k) == 1:
@@ -208,7 +220,7 @@ async def get_shortlink(link, grp_id, is_second_shortener=False, is_third_shorte
     else:
         settings = SETTINGS
     if IS_VERIFY:
-        if is_third_shortener:             
+        if is_third_shortener:
             api, site = settings['api_three'], settings['shortner_three']
         else:
             if is_second_shortener:
@@ -222,6 +234,7 @@ async def get_shortlink(link, grp_id, is_second_shortener=False, is_third_shorte
             link = await shortzy.get_quick_link(link)
     return link
 
+
 def get_file_id(message: "Message") -> Any:
     media_types = (
         "audio",
@@ -232,7 +245,7 @@ def get_file_id(message: "Message") -> Any:
         "video",
         "voice",
         "video_note",
-    )    
+    )
     if message.media:
         for attr in media_types:
             media = getattr(message, attr, None)
@@ -243,6 +256,7 @@ def get_file_id(message: "Message") -> Any:
 #def get_hash(media_msg: Message) -> str:
 #    media = get_file_id(media_msg)
  #   return getattr(media, "file_unique_id", "")[:6]
+
 
 def get_status():
     tz = pytz.timezone('Asia/Colombo')
@@ -255,12 +269,14 @@ def get_status():
         sts = "𝐺𝑜𝑜𝑑 𝐸𝑣𝑒𝑛𝑖𝑛𝑔"
     return sts
 
+
 async def is_check_admin(bot, chat_id, user_id):
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
     except:
         return False
+
 
 async def get_seconds(time_string):
     def extract_value_and_unit(ts):
@@ -289,6 +305,7 @@ async def get_seconds(time_string):
         return value * 86400 * 365
     else:
         return 0
+
 
 def get_readable_time(seconds):
     periods = [('days', 86400), ('hour', 3600), ('min', 60), ('sec', 1)]
