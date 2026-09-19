@@ -1,14 +1,17 @@
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors.exceptions.bad_request_400 import MessageTooLong
 from info import ADMINS, LOG_CHANNEL, USERNAME
 from database.users_chats_db import db
-from database.ia_filterdb import Media, get_files_db_size
+from database.ia_filterdb import Media, get_files_db_size, node_stats, total_media_count
 from utils import get_size, temp
 from Script import script
 from datetime import datetime
 import psutil
 import time
+
+# Process start marker (info.py stays untouched, so uptime is tracked here)
+_START_TS = time.time()
 
 @Client.on_message(filters.new_chat_members & filters.group)
 async def save_group(bot, message):
@@ -89,10 +92,30 @@ async def get_ststs(bot, message):
     groups = await db.total_chat_count()
     size = get_size(await db.get_db_size())
     free = get_size(536870912)
-    files = await Media.count_documents()
+    files = await total_media_count()
     db2_size = get_size(await get_files_db_size())
     db2_free = get_size(536870912)
-    uptime = time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - time.time()))
+    uptime = time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - _START_TS))
     ram = psutil.virtual_memory().percent
     cpu = psutil.cpu_percent()
     await message.reply_text(script.STATUS_TXT.format(users, groups, size, free, files, db2_size, db2_free, uptime, ram, cpu))
+
+@Client.on_message(filters.command('dbstatus') & filters.user(ADMINS) & filters.incoming)
+async def db_status(bot, message):
+    """Health of every configured media database node."""
+    report = await node_stats()
+    lines = ["<b>ᴍᴜʟᴛɪ-ᴅᴀᴛᴀʙᴀꜱᴇ ꜱᴛᴀᴛᴜꜱ</b>\n"]
+    for node in report["nodes"]:
+        usage = f"<code>{get_size(node['size'])}</code>"
+        if node["limit"]:
+            usage += f" / <code>{get_size(node['limit'])}</code>"
+        lines.append(
+            f"{'🟢' if node['reachable'] else '🔴'} <b>{node['label']}</b>"
+            f"{' ⬅️ ᴀᴄᴛɪᴠᴇ' if node['active'] else ''}\n"
+            f"   ꜰɪʟᴇꜱ: <code>{node['documents']}</code>\n"
+            f"   ᴜꜱᴇᴅ: {usage}{' ⚠️ ꜰᴜʟʟ' if node['full'] else ''}"
+        )
+    lines.append(f"\nᴛᴏᴛᴀʟ ꜱᴡɪᴛᴄʜᴇꜱ: <code>{report['switches']}</code>")
+    if report["last_switch_reason"]:
+        lines.append(f"ʟᴀꜱᴛ ꜱᴡɪᴛᴄʜ: <code>{report['last_switch_reason']}</code>")
+    await message.reply_text("\n".join(lines), parse_mode=enums.ParseMode.HTML)

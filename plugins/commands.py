@@ -98,7 +98,7 @@ async def start(client:Client, message):
         if user_id == message.from_user.id:
             await message.reply_text("Hᴇʏ ᴅᴜᴅᴇ, ʏᴏᴜ ᴄᴀɴ ɴᴏᴛ ʀᴇғᴇʀ ʏᴏᴜʀsᴇʟғ⁉️")
             return
-        if referdb.is_user_in_list(message.from_user.id):
+        if await referdb.is_user_in_list(message.from_user.id):
             await message.reply_text("‼️ Yᴏᴜ ʜᴀᴠᴇ ʙᴇᴇɴ ᴀʟʀᴇᴀᴅʏ ɪɴᴠɪᴛᴇᴅ ᴏʀ ᴊᴏɪɴᴇᴅ")
             return
         if await db.is_user_exist(message.from_user.id): 
@@ -108,15 +108,17 @@ async def start(client:Client, message):
             uss = await client.get_users(user_id)
         except Exception:
             return
-        referdb.add_user(message.from_user.id)
-        fromuse = referdb.get_refer_points(user_id) + 10
+        await referdb.add_user(message.from_user.id)
+        fromuse = await referdb.get_refer_points(user_id) + 10
         if fromuse == 100:
-            referdb.add_refer_points(user_id, 0) 
+            await referdb.add_refer_points(user_id, 0) 
             await message.reply_text(f"𝙔𝙤𝙪 𝙝𝙖𝙫𝙚 𝙗𝙚𝙚𝙣 𝙨𝙪𝙘𝙘𝙚𝙨𝙨𝙛𝙪𝙡𝙡𝙮 𝙞𝙣𝙫𝙞𝙩𝙚𝙙 𝙗𝙮 {uss.mention}!") 
             await client.send_message(user_id, text=f"𝙔𝙤𝙪 𝙝𝙖𝙫𝙚 𝙗𝙚𝙚𝙣 𝙨𝙪𝙘𝙘𝙚𝙨𝙨𝙛𝙪𝙡𝙡𝙮 𝙞𝙣𝙫𝙞𝙩𝙚𝙙 𝙗𝙮 {message.from_user.mention}!") 
-            await add_premium(client, user_id, uss)
+            # Reward the referrer with premium (was calling an undefined add_premium).
+            expiry_time = dt.now() + timedelta(seconds=REF_PREMIUM * 24 * 60 * 60)
+            await db.update_user({"id": user_id, "expiry_time": expiry_time})
         else:
-            referdb.add_refer_points(user_id, fromuse)
+            await referdb.add_refer_points(user_id, fromuse)
             await message.reply_text(f"𝙔𝙤𝙪 𝙝𝙖𝙫𝙚 𝙗𝙚𝙚𝙣 𝙨𝙪𝙘𝙘𝙚𝙨𝙨𝙛𝙪𝙡𝙡𝙮 𝙞𝙣𝙫𝙞𝙩𝙚𝙙 𝙗𝙮 {uss.mention}!")
             await client.send_message(user_id, f"𝙔𝙤𝙪 𝙝𝙖𝙫𝙚 𝙨𝙪𝙘𝙘𝙚𝙨𝙨𝙛𝙪𝙡𝙡𝙮 𝙞𝙣𝙫𝙞𝙩𝙚𝙙 {message.from_user.mention}!")
         return
@@ -1011,7 +1013,7 @@ async def top(client, query):
 async def refer(bot, message):
     btn = [[
         InlineKeyboardButton('invite link', url=f'https://telegram.me/share/url?url=https://t.me/{bot.me.username}?start=reff_{message.from_user.id}&text=Hello%21%20Experience%20a%20bot%20that%20offers%20a%20vast%20library%20of%20unlimited%20movies%20and%20series.%20%F0%9F%98%83'),
-        InlineKeyboardButton(f'⏳ {referdb.get_refer_points(message.from_user.id)}', callback_data='ref_point'),
+        InlineKeyboardButton(f'⏳ {await referdb.get_refer_points(message.from_user.id)}', callback_data='ref_point'),
         InlineKeyboardButton('Close', callback_data='close_data')
     ]]  
     m=await message.reply_sticker("CAACAgQAAxkBAAEkt_Rl_7138tgHJdEsqSNzO5mPWioZDgACGRAAAudLcFGAbsHU3KNJUx4E")      

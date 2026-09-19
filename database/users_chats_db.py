@@ -1,6 +1,8 @@
 import datetime
+import logging
 import pytz
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from info import SETTINGS, IS_PM_SEARCH, IS_SEND_MOVIE_UPDATE, PREMIUM_POINT,REF_PREMIUM,IS_VERIFY, SHORTENER_WEBSITE3, SHORTENER_API3, THREE_VERIFY_GAP, LINK_MODE, FILE_CAPTION, TUTORIAL, DATABASE_NAME, DATABASE_URI, IMDB, IMDB_TEMPLATE, PROTECT_CONTENT, AUTO_DELETE, SPELL_CHECK, AUTO_FILTER, LOG_VR_CHANNEL, SHORTENER_WEBSITE, SHORTENER_API, SHORTENER_WEBSITE2, SHORTENER_API2, TWO_VERIFY_GAP
 # from utils import get_seconds
 client = AsyncIOMotorClient(DATABASE_URI)
@@ -22,6 +24,7 @@ class Database:
         self.movies_update_channel = mydb.movies_update_channel
         self.botcol = mydb.botcol
         self.stream_mode = mydb.stream_modes
+        self.grp_links = mydb.grp_links
 
     async def save_stream_mode(self, mode):
         await self.stream_mode.update_one(
@@ -58,10 +61,13 @@ class Database:
         return bool(await self.req.find_one({'id': id}))
         
     async def add_join_req(self, id):
-        await self.req.insert_one({'id': id})
+        try:
+            await self.req.update_one({'id': id}, {'$set': {'id': id}}, upsert=True)
+        except Exception as exc:
+            logging.getLogger(__name__).warning('add_join_req(%s) failed: %s', id, exc)
 
     async def del_join_req(self):
-        await self.req.drop()
+        await self.req.delete_many({})
 
     def new_group(self, id, title):
         return dict(
@@ -83,7 +89,7 @@ class Database:
         if point >= PREMIUM_POINT :
             seconds = (REF_PREMIUM * 24 * 60 * 60)
             oldEx =(await self.users.find_one({'id' : id}))
-            if oldEx :
+            if oldEx and oldEx.get('expiry_time'):
                 expiry_time = oldEx['expiry_time'] + datetime.timedelta(seconds=seconds)
             else: 
                 expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
@@ -246,8 +252,11 @@ class Database:
         return await self.verify_id.update_one(myquery, newvalues)
 
     async def get_user(self, user_id):
+        """Return the user's premium record, or an empty mapping when the user
+        has none yet. Callers read optional fields (seen_ads, expiry_time) off
+        this document, so returning None made them crash on first use."""
         user_data = await self.users.find_one({"id": user_id})
-        return user_data
+        return user_data or {}
 
     async def remove_ban(self, id):
         ban_status = dict(
@@ -430,4 +439,36 @@ class Database:
             else:
                 return None
         return await self.movies_update_channel.update_one({} , {'$set': {'id': id}} , upsert=True)
+
+    async def get_set_grp_links(self, index=None):
+        """Group links store used by the support-group shortcut.
+
+        index=None returns the full links dict (may be empty);
+        a 1-based index returns that single link or None when unset.
+        """
+        doc = await self.grp_links.find_one({'_id': 'links'})
+        links = (doc or {}).get('value') or {}
+        if index is None:
+            return links
+        if isinstance(index, int):
+            index = str(index)
+        return links.get(index)
+
+    async def set_grp_link(self, index, link):
+        """Upsert a single group link consumed by get_set_grp_links."""
+        if isinstance(index, int):
+            index = str(index)
+        await self.grp_links.update_one(
+            {'_id': 'links'}, {'$set': {f'value.{index}': link}}, upsert=True
+        )
+
+    async def update_value(self, user_id, key, value):
+        """Set an arbitrary top-level field on a user document (upsert).
+
+        This writes to the same collection get_user() reads; targeting a
+        different one made values set here (e.g. seen_ads) invisible to their
+        readers, which drained the advertisement impressions.
+        """
+        await self.users.update_one({'id': user_id}, {'$set': {key: value}}, upsert=True)
+
 db = Database()

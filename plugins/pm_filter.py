@@ -68,8 +68,14 @@ async def group_search(client, message):
                     return
                 files, n_offset, total = await get_search_results(message.text, offset=0)
                 if total != 0:
-                    link = await db.get_set_grp_links(index=1)
-                    msg = await message.reply_text(script.SUPPORT_GRP_MOVIE_TEXT.format(message.from_user.mention() , total) ,             reply_markup=InlineKeyboardMarkup([
+                    # The stored group links are optional configuration; fall back
+                    # to the movie group from info.py instead of replying nothing.
+                    link = await db.get_set_grp_links(index=1) or MOVIE_GROUP_LINK
+                    if not link:
+                        logger.warning('No group link configured for the SUPPORT_GROUP shortcut; skipping')
+                        return
+                    mention = message.from_user.mention if message.from_user else message.chat.title
+                    msg = await message.reply_text(script.SUPPORT_GRP_MOVIE_TEXT.format(mention , total) ,             reply_markup=InlineKeyboardMarkup([
                         [ InlineKeyboardButton('ɢᴇᴛ ғɪʟᴇs ғʀᴏᴍ ʜᴇʀᴇ 😉' , url=link)]
                         ]))
                     await asyncio.sleep(300)
@@ -135,7 +141,7 @@ async def group_search(client, message):
 async def refercall(bot, query):
     btn = [[
         InlineKeyboardButton('invite link', url=f'https://telegram.me/share/url?url=https://t.me/{bot.me.username}?start=reff_{query.from_user.id}&text=Hello%21%20Experience%20a%20bot%20that%20offers%20a%20vast%20library%20of%20unlimited%20movies%20and%20series.%20%F0%9F%98%83'),
-        InlineKeyboardButton(f'⏳ {referdb.get_refer_points(query.from_user.id)}', callback_data='ref_point'),
+        InlineKeyboardButton(f'⏳ {await referdb.get_refer_points(query.from_user.id)}', callback_data='ref_point'),
         InlineKeyboardButton('Back', callback_data='start')
     ]]
     reply_markup = InlineKeyboardMarkup(btn)
@@ -927,7 +933,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
 	)
 
     elif query.data == "ref_point":
-        await query.answer(f'You Have: {referdb.get_refer_points(query.from_user.id)} Refferal points.', show_alert=True)
+        await query.answer(f'You Have: {await referdb.get_refer_points(query.from_user.id)} Refferal points.', show_alert=True)
 
     elif query.data == "verifyon":
         await query.answer(f'Only the bot admin can ᴏɴ ✓ or ᴏғғ ✗ this feature.', show_alert=True)

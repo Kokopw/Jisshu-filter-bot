@@ -134,7 +134,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, skip):
                 elif sts == 'err':
                     errors += 1
         except FloodWait as e:
-            await asyncio.sleep(e.x)
+            await asyncio.sleep(e.value)
         except Exception as e:
             await msg.reply(f'Index canceled due to Error - {e}')
         else:

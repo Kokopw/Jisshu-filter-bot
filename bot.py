@@ -1,8 +1,4 @@
 
-import sys
-import glob
-import importlib
-from pathlib import Path
 from pyrogram import idle
 import logging
 import logging.config
@@ -22,7 +18,7 @@ logging.getLogger("aiohttp.web").setLevel(logging.ERROR)
 
 from pyrogram import Client, __version__
 from pyrogram.raw.all import layer
-from database.ia_filterdb import Media
+from database.ia_filterdb import ensure_all_indexes
 from database.users_chats_db import db
 from info import *
 from utils import temp
@@ -40,35 +36,49 @@ from Jisshu.bot import JisshuBot
 from Jisshu.util.keepalive import ping_server
 from Jisshu.bot.clients import initialize_clients
 
-ppath = "plugins/*.py"
-files = glob.glob(ppath)
-JisshuBot.start()
 loop = asyncio.get_event_loop()
+
+
+def _notify_db_switch(previous, new, reason):
+    """Log-channel notification fired by the manager after every DB switch."""
+    try:
+        loop.create_task(
+            JisshuBot.send_message(
+                LOG_CHANNEL,
+                text=(
+                    "<b>#DatabaseSwitch</b>\n\n"
+                    f"`{previous.label}` ➜ `{new.label}`\n"
+                    f"<b>Reason:</b> {reason}"
+                ),
+            )
+        )
+    except Exception:
+        logging.exception("Failed to queue DB switch notification")
 
 
 async def Jisshu_start():
     print('\n')
     print('Initalizing The Movie Provider Bot')
+    # Pyrogram imports every module below plugins/ (plugins/Extra, plugins/helper
+    # included) and registers their handlers the moment the client starts, so
+    # the plugins must NOT be imported a second time by hand here: a manual
+    # re-execution would replace the modules in sys.modules while the dispatcher
+    # keeps running the first copy.
+    await JisshuBot.start()
     bot_info = await JisshuBot.get_me()
     JisshuBot.username = bot_info.username
     await initialize_clients()
-    for name in files:
-        with open(name) as a:
-            patt = Path(a.name)
-            plugin_name = patt.stem.replace(".py", "")
-            plugins_dir = Path(f"plugins/{plugin_name}.py")
-            import_path = "plugins.{}".format(plugin_name)
-            spec = importlib.util.spec_from_file_location(import_path, plugins_dir)
-            load = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(load)
-            sys.modules["plugins." + plugin_name] = load
-            print("The Movie Provider Imported => " + plugin_name)
     if ON_HEROKU:
         asyncio.create_task(ping_server())
     b_users, b_chats = await db.get_banned()
     temp.BANNED_USERS = b_users
     temp.BANNED_CHATS = b_chats
-    await Media.ensure_indexes()
+    # Multi-database manager: connect every configured node before first use.
+    from database.db_manager import get_manager
+    db_manager = get_manager()
+    db_manager.add_switch_listener(_notify_db_switch)
+    await db_manager.initialize()
+    await ensure_all_indexes()
     me = await JisshuBot.get_me()
     temp.ME = me.id
     temp.U_NAME = me.username
