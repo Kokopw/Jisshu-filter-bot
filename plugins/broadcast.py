@@ -33,7 +33,9 @@ async def broadcast_users(bot, message):
             return await message.reply('Currently broadcast processing, wait for it to complete.')
 
         # Ask if message should be pinned
-        msg = await message.ask(
+        # wzgram exposes the conversation helpers on Client/Chat (pyromod only
+        # patched Message.ask, which no longer exists here).
+        msg = await message.chat.ask(
             '<b>Do you want to pin this message to users?</b>',
             reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True, resize_keyboard=True)
         )
@@ -110,7 +112,7 @@ async def broadcast_users(bot, message):
         
 @Client.on_message(filters.command("grp_broadcast") & filters.user(ADMINS) & filters.reply)
 async def broadcast_group(bot, message):
-    msg = await message.ask('<b>Do you want pin this message in groups?</b>', reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True, resize_keyboard=True))
+    msg = await message.chat.ask('<b>Do you want pin this message in groups?</b>', reply_markup=ReplyKeyboardMarkup([['Yes', 'No']], one_time_keyboard=True, resize_keyboard=True))
     if msg.text == 'Yes':
         is_pin = True
     elif msg.text == 'No':

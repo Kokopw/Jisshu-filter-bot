@@ -1,6 +1,4 @@
-pyrofork==2.3.45 
-Pyrogram 
-tgcrypto 
+wzgram[fast]==3.1.1 
 pymongo==4.8.0 
 motor==3.5.1 
 marshmallow==3.18.0 
@@ -49,5 +47,5 @@ ffmpeg-python>=0.2.0
 jinja2 
 apscheduler 
 pyshorteners 
-pyromod 
+# pyromod removed: wzgram ships Client.listen/Client.ask/Chat.ask natively, and pyromod declares a dependency on upstream Pyrogram, which would overwrite the pyrogram package shipped by wzgram
 colorama

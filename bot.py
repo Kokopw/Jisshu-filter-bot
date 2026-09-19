@@ -36,6 +36,18 @@ from Jisshu.bot import JisshuBot
 from Jisshu.util.keepalive import ping_server
 from Jisshu.bot.clients import initialize_clients
 
+# Speedups: wzgram is backed by WarpCrypto (Rust) for MTProto encryption, and the
+# `wzgram[fast]` extra also brings uvloop. The policy has to be installed before
+# the event loop is created, and uvloop is unavailable on Windows/unsupported
+# platforms, so a missing extra must never stop the bot from starting.
+try:
+    import uvloop
+
+    uvloop.install()
+    logging.info("uvloop event loop policy enabled (wzgram[fast] speedups)")
+except ImportError:
+    logging.info("uvloop not installed; using the default asyncio event loop")
+
 loop = asyncio.get_event_loop()
 
 
